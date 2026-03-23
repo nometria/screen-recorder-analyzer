@@ -4,7 +4,6 @@ Screen recording processor: extract audio → transcribe with Whisper → OCR ke
 import json
 import os
 import subprocess
-import tempfile
 from typing import Any, Dict, List, Optional
 
 try:
