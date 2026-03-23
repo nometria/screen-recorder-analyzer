@@ -34,11 +34,11 @@ screen-analyze = "screen_recorder_analyzer.cli:main"
 screen-analyze-api = "screen_recorder_analyzer.api:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["screen_recorder_analyzer"]
+packages = ["src/screen_recorder_analyzer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
 
 [project.urls]
-Repository = "https://github.com/ownmy-app/screen-recorder-analyzer"
+Repository = "https://github.com/nometria/screen-recorder-analyzer"
