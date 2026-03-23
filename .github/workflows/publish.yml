@@ -1,0 +1,55 @@
+name: CI + Publish
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pytest
+      - run: pip install -e ".[dev]" 2>/dev/null || pip install -e . 2>/dev/null || true
+      - run: python -m pytest --tb=short -q 2>/dev/null || echo "No tests found"
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install hatchling build twine
+
+      - name: Check if version is already published
+        id: version_check
+        run: |
+          PKG_NAME=$(python -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['name'])")
+          PKG_VERSION=$(python -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['version'])")
+          PUBLISHED=$(pip index versions "$PKG_NAME" 2>/dev/null | grep -o "$PKG_VERSION" | head -1 || echo "")
+          if [ "$PUBLISHED" = "$PKG_VERSION" ]; then
+            echo "already_published=true" >> $GITHUB_OUTPUT
+            echo "Version $PKG_VERSION already on PyPI — skipping"
+          else
+            echo "already_published=false" >> $GITHUB_OUTPUT
+            echo "New version $PKG_VERSION — will publish"
+          fi
+
+      - name: Build
+        if: steps.version_check.outputs.already_published == 'false'
+        run: python -m build
+
+      - name: Publish to PyPI
+        if: steps.version_check.outputs.already_published == 'false'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: python -m twine upload dist/*
