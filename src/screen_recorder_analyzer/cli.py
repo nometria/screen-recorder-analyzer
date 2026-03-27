@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-screen-analyze CLI
+screen-analyze CLI — one command does it all.
 
 Usage:
-  screen-analyze video.mp4
-  screen-analyze video.mp4 --whisper large --max-frames 50 --format json
-  screen-analyze video.mp4 --no-actions   # skip GPT step
+  screen-analyze video.mp4                              # transcribe + OCR + actions
+  screen-analyze video.mp4 --whisper-backend api        # use OpenAI Whisper API (no local model)
+  screen-analyze video.mp4 --whisper large --format json
+  screen-analyze video.mp4 --no-actions                 # skip LLM action extraction step
 """
 import argparse
 import json
@@ -16,11 +17,17 @@ import sys
 def main():
     parser = argparse.ArgumentParser(
         prog="screen-analyze",
-        description="Analyze a screen recording: transcribe audio, OCR frames, extract user actions.",
+        description=(
+            "Analyze a screen recording in one shot: "
+            "transcribe audio, OCR keyframes, and extract user actions via LLM."
+        ),
     )
     parser.add_argument("video", help="Path to video file (mp4, mov, mkv, ...)")
     parser.add_argument("--whisper", default="base", metavar="MODEL",
                         help="Whisper model size: tiny|base|small|medium|large (default: base)")
+    parser.add_argument("--whisper-backend", default=None, choices=["local", "api"],
+                        help="Whisper backend: 'local' (default, needs openai-whisper+torch) "
+                             "or 'api' (uses OpenAI Whisper API, needs OPENAI_API_KEY)")
     parser.add_argument("--frame-skip", type=int, default=29, metavar="N",
                         help="Analyze every N+1 frames (default: 29 = every 30th)")
     parser.add_argument("--max-frames", type=int, default=100, metavar="N",
@@ -28,7 +35,7 @@ def main():
     parser.add_argument("--ocr-lang", default="eng", metavar="LANG",
                         help="Tesseract language code (default: eng)")
     parser.add_argument("--no-actions", action="store_true",
-                        help="Skip GPT action extraction step")
+                        help="Skip LLM action extraction step")
     parser.add_argument("--format", choices=["json", "text"], default="text",
                         help="Output format (default: text)")
 
@@ -40,8 +47,15 @@ def main():
 
     from .processor import VideoProcessor, extract_actions
 
+    # Resolve whisper backend: CLI flag > env var > "local"
+    whisper_backend = (
+        args.whisper_backend
+        or os.environ.get("WHISPER_BACKEND", "local").lower().strip()
+    )
+
     processor = VideoProcessor(
         whisper_model_size=args.whisper,
+        whisper_backend=whisper_backend,
         frame_skip=args.frame_skip,
         max_frames=args.max_frames,
         ocr_lang=args.ocr_lang,

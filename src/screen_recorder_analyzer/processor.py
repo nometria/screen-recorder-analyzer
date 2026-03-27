@@ -1,5 +1,11 @@
 """
-Screen recording processor: extract audio → transcribe with Whisper → OCR keyframes → GPT action extraction.
+Screen recording processor: extract audio -> transcribe with Whisper -> OCR keyframes -> LLM action extraction.
+
+Supports multiple LLM backends (OpenAI, Anthropic, LiteLLM) via the ``llm``
+module, and two Whisper backends:
+
+    WHISPER_BACKEND=local   (default)  Uses openai-whisper local model
+    WHISPER_BACKEND=api                Uses OpenAI Whisper API (no local model download)
 """
 import json
 import os
@@ -24,16 +30,12 @@ except ImportError:
     torch = None
 
 try:
-    import openai
-except ImportError:
-    openai = None
-
-try:
     from moviepy import VideoFileClip
 except ImportError:
     VideoFileClip = None
 
 DEFAULT_WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
+DEFAULT_WHISPER_BACKEND = os.environ.get("WHISPER_BACKEND", "local").lower().strip()
 DEFAULT_FRAME_SKIP = int(os.environ.get("FRAME_SKIP", "29"))
 DEFAULT_MAX_FRAMES = int(os.environ.get("MAX_FRAMES", "100"))
 DEFAULT_OCR_LANG = os.environ.get("OCR_LANG", "eng")
@@ -44,15 +46,17 @@ class VideoProcessor:
     def __init__(
         self,
         whisper_model_size: str = DEFAULT_WHISPER_MODEL,
+        whisper_backend: str = DEFAULT_WHISPER_BACKEND,
         frame_skip: int = DEFAULT_FRAME_SKIP,
         max_frames: Optional[int] = DEFAULT_MAX_FRAMES,
         ocr_lang: str = DEFAULT_OCR_LANG,
     ):
         self.whisper_model_size = whisper_model_size
+        self.whisper_backend = whisper_backend  # "local" or "api"
         self.frame_skip = frame_skip
         self.max_frames = max_frames
         self.ocr_lang = ocr_lang
-        self._whisper_model = None
+        self._whisper_model = None  # lazy-loaded only when backend == "local"
         self.device = "cuda" if torch and torch.cuda.is_available() else "cpu"
         self.tesseract_ok = False
         if pytesseract:
@@ -63,6 +67,7 @@ class VideoProcessor:
                 pass
 
     def _load_whisper(self):
+        """Lazy-load the local Whisper model (only needed for backend='local')."""
         if self._whisper_model is None and whisper and torch:
             self._whisper_model = whisper.load_model(self.whisper_model_size, device=self.device)
 
@@ -77,6 +82,18 @@ class VideoProcessor:
         return audio_path
 
     def transcribe(self, audio_path: str) -> str:
+        """
+        Transcribe audio to text.
+
+        When ``WHISPER_BACKEND=api`` (or ``whisper_backend='api'`` in the
+        constructor), uses the OpenAI Whisper API — no local model download
+        required.  Otherwise falls back to the local ``openai-whisper`` package.
+        """
+        if self.whisper_backend == "api":
+            return self._transcribe_api(audio_path)
+        return self._transcribe_local(audio_path)
+
+    def _transcribe_local(self, audio_path: str) -> str:
         if not whisper or not torch:
             return "[Skipped: whisper/torch not installed]"
         self._load_whisper()
@@ -84,6 +101,25 @@ class VideoProcessor:
             return "[Skipped: model failed to load]"
         result = self._whisper_model.transcribe(audio_path, fp16=(self.device != "cpu"))
         return result["text"]
+
+    def _transcribe_api(self, audio_path: str) -> str:
+        """Transcribe via the OpenAI Whisper API (requires OPENAI_API_KEY)."""
+        try:
+            import openai as _openai
+        except ImportError:
+            return "[Skipped: openai package not installed for Whisper API]"
+
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return "[Skipped: OPENAI_API_KEY not set for Whisper API]"
+
+        client = _openai.OpenAI(api_key=api_key)
+        with open(audio_path, "rb") as f:
+            result = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+            )
+        return result.text
 
     def get_metadata(self, video_path: str) -> Dict[str, Any]:
         if not VideoFileClip:
@@ -146,13 +182,14 @@ class VideoProcessor:
 
 
 def extract_actions(results: Dict[str, Any], api_key: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Use GPT to extract a chronological list of user actions from transcript + OCR."""
-    if not openai:
-        raise RuntimeError("openai package not installed")
+    """
+    Use an LLM to extract a chronological list of user actions from transcript + OCR.
 
-    api_key = api_key or os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY not set")
+    Routes through the multi-LLM abstraction (``llm.py``).  The provider is
+    selected via the ``LLM_PROVIDER`` env var; *api_key* is accepted for
+    backwards compatibility but is no longer required when using the llm module.
+    """
+    from .llm import ask_llm
 
     transcript = results.get("transcript", "")
     frames = results.get("frame_analysis", [])
@@ -178,17 +215,16 @@ def extract_actions(results: Dict[str, Any], api_key: Optional[str] = None) -> L
     )
 
     prompt = "\n".join(sections)
-    client = openai.OpenAI(api_key=api_key)
-    resp = client.chat.completions.create(
-        model=os.environ.get("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
-        messages=[
-            {"role": "system", "content": "You analyze screen recordings. Output only JSON."},
-            {"role": "user", "content": prompt},
-        ],
+
+    raw = ask_llm(
+        prompt=prompt,
+        system="You analyze screen recordings. Output only JSON.",
         max_tokens=16000,
         temperature=0.3,
-    )
-    raw = resp.choices[0].message.content.strip()
+        response_json=True,
+    ).strip()
+
+    # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):

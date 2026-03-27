@@ -21,7 +21,7 @@ Extracts a chronological list of what the user was doing:
 brew install ffmpeg tesseract          # macOS
 sudo apt install ffmpeg tesseract-ocr  # Ubuntu
 
-# Install (base — just needs OPENAI_API_KEY)
+# Install (base -- just needs OPENAI_API_KEY)
 pip install screen-recorder-analyzer
 
 # Install with all OCR/audio engines
@@ -30,8 +30,11 @@ pip install screen-recorder-analyzer[full]
 # Set API key
 export OPENAI_API_KEY=sk-proj-...
 
-# Analyze a recording
+# Analyze a recording (one command does it all: transcribe + OCR + actions)
 screen-analyze demo.mp4
+
+# Use OpenAI Whisper API instead of local model (no torch download needed)
+screen-analyze demo.mp4 --whisper-backend api
 
 # JSON output (suitable for piping)
 screen-analyze demo.mp4 --format json
@@ -115,16 +118,59 @@ for action in actions:
 
 ---
 
+## Multi-LLM support
+
+Action extraction supports multiple LLM backends. Set the provider via environment variables:
+
+```bash
+# Use Anthropic Claude
+export LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Use any LiteLLM-supported model
+export LLM_PROVIDER=litellm
+export LLM_MODEL=together_ai/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo
+```
+
+Install the optional backend:
+```bash
+pip install screen-recorder-analyzer[anthropic]  # Anthropic Claude
+pip install screen-recorder-analyzer[litellm]    # LiteLLM (any provider)
+```
+
+---
+
+## Whisper backend
+
+Choose between a local Whisper model (default) and the OpenAI Whisper API:
+
+```bash
+# Local model (default) -- requires openai-whisper + torch
+screen-analyze demo.mp4 --whisper-backend local
+
+# OpenAI API -- no local model download, just needs OPENAI_API_KEY
+screen-analyze demo.mp4 --whisper-backend api
+
+# Or set via env var
+export WHISPER_BACKEND=api
+screen-analyze demo.mp4
+```
+
+---
+
 ## Configuration (env vars)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENAI_API_KEY` | required | OpenAI API key |
-| `WHISPER_MODEL` | `base` | Whisper model size |
+| `OPENAI_API_KEY` | required for openai/whisper-api | OpenAI API key |
+| `LLM_PROVIDER` | `openai` | `openai`, `anthropic`, or `litellm` |
+| `LLM_MODEL` | per-provider | Model override (e.g. `gpt-4o`, `claude-sonnet-4-20250514`) |
+| `ANTHROPIC_API_KEY` | required for anthropic | Anthropic API key |
+| `WHISPER_MODEL` | `base` | Whisper model size (local backend only) |
+| `WHISPER_BACKEND` | `local` | `local` (openai-whisper) or `api` (OpenAI Whisper API) |
 | `FRAME_SKIP` | `29` | Analyze every N+1 frames |
 | `MAX_FRAMES` | `100` | Max frames to OCR |
 | `OCR_LANG` | `eng` | Tesseract language |
-| `OPENAI_MODEL` | `gpt-4o` | Model for action extraction |
 
 ---
 
