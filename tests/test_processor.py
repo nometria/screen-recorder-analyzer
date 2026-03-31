@@ -51,9 +51,11 @@ def test_action_prompt_structure():
         )
         assert isinstance(result, list)
         assert result[0]["tools"] == ["excel"]
-        # Verify the prompt included the transcript
-        call_args = mock_ask.call_args
-        assert "Excel" in call_args[0][0] or "Excel" in call_args[1].get("prompt", "")
+        # Verify the prompt included the transcript (may be positional or keyword)
+        mock_ask.assert_called_once()
+        args, kwargs = mock_ask.call_args
+        prompt_text = args[0] if args else kwargs.get("prompt", "")
+        assert "Excel" in prompt_text
 
 
 def test_api_app_creates():
