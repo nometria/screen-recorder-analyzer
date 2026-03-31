@@ -22,7 +22,6 @@ ANTHROPIC_API_KEY : str
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Provider / model resolution
