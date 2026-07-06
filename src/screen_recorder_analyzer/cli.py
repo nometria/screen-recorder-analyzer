@@ -35,11 +35,31 @@ def main():
     parser.add_argument("--ocr-lang", default="eng", metavar="LANG",
                         help="Tesseract language code (default: eng)")
     parser.add_argument("--no-actions", action="store_true",
-                        help="Skip LLM action extraction step")
+                        help="Skip LLM action extraction step (transcribe + OCR only)")
+    parser.add_argument("--mode", choices=["full", "transcription_only", "ocr_only", "no_actions"],
+                        default=None,
+                        help="Pipeline stages to run (default: full). "
+                             "transcription_only skips OCR + LLM; ocr_only skips audio + LLM.")
+    parser.add_argument("--transcription-only", action="store_true",
+                        help="Audio transcript only (skip OCR + LLM). Alias for --mode transcription_only.")
+    parser.add_argument("--ocr-only", action="store_true",
+                        help="OCR keyframes only (skip audio + LLM). Alias for --mode ocr_only.")
     parser.add_argument("--format", choices=["json", "text"], default="text",
                         help="Output format (default: text)")
 
     args = parser.parse_args()
+
+    # Resolve pipeline mode from flags (explicit --mode wins, then aliases).
+    mode = args.mode
+    if mode is None:
+        if args.transcription_only:
+            mode = "transcription_only"
+        elif args.ocr_only:
+            mode = "ocr_only"
+        elif args.no_actions:
+            mode = "no_actions"
+        else:
+            mode = "full"
 
     if not os.path.exists(args.video):
         print(f"Error: file not found: {args.video}", file=sys.stderr)
@@ -61,10 +81,10 @@ def main():
         ocr_lang=args.ocr_lang,
     )
 
-    print("Processing video...", file=sys.stderr)
-    results = processor.process(args.video)
+    print(f"Processing video... (mode: {mode})", file=sys.stderr)
+    results = processor.process(args.video, mode=mode)
 
-    if not args.no_actions:
+    if mode == "full":
         try:
             results["structured_actions"] = extract_actions(results)
         except Exception as e:

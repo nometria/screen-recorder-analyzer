@@ -14,10 +14,20 @@ from .processor import VideoProcessor, extract_actions
 
 class ProcessingConfig(BaseModel):
     whisper_model_size: str = Field("base", description="tiny | base | small | medium | large")
+    whisper_backend: str = Field("local", description="local (openai-whisper) | api (OpenAI Whisper API)")
     frame_skip: int = Field(29, description="Analyze every N+1 frames")
     max_frames: Optional[int] = Field(100, description="Max frames to OCR (null = no limit)")
     ocr_lang: str = Field("eng", description="Tesseract language code(s), e.g. 'eng+fra'")
     openai_model: str = Field("gpt-4o", description="OpenAI model for action extraction")
+    mode: str = Field(
+        "full",
+        description=(
+            "full = transcribe + OCR + LLM actions; "
+            "transcription_only = audio transcript only (skip OCR + LLM); "
+            "ocr_only = OCR keyframes only (skip audio + LLM); "
+            "no_actions = transcribe + OCR but skip LLM action extraction"
+        ),
+    )
 
 
 class VideoRequest(BaseModel):
@@ -54,23 +64,29 @@ async def process_video(request: VideoRequest = Body(...)) -> Dict[str, Any]:
     cfg = request.config
     processor = VideoProcessor(
         whisper_model_size=cfg.whisper_model_size,
+        whisper_backend=cfg.whisper_backend,
         frame_skip=cfg.frame_skip,
         max_frames=cfg.max_frames,
         ocr_lang=cfg.ocr_lang,
     )
 
     try:
-        pipeline_results = processor.process(request.video_path)
+        pipeline_results = processor.process(request.video_path, mode=cfg.mode)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Processing failed: {e}")
 
-    try:
-        actions = extract_actions(pipeline_results, api_key=api_key)
-        pipeline_results["structured_actions"] = actions
-        pipeline_results["ai_status"] = "ok"
-    except Exception as e:
+    # LLM action extraction is the final stage; skip it for the lighter modes.
+    if cfg.mode in ("transcription_only", "ocr_only", "no_actions"):
         pipeline_results["structured_actions"] = []
-        pipeline_results["ai_status"] = f"error: {e}"
+        pipeline_results["ai_status"] = f"skipped: {cfg.mode}"
+    else:
+        try:
+            actions = extract_actions(pipeline_results, api_key=api_key)
+            pipeline_results["structured_actions"] = actions
+            pipeline_results["ai_status"] = "ok"
+        except Exception as e:
+            pipeline_results["structured_actions"] = []
+            pipeline_results["ai_status"] = f"error: {e}"
 
     # Slim down frame_analysis in response (remove raw OCR text to reduce payload)
     pipeline_results["frame_analysis_summary"] = [

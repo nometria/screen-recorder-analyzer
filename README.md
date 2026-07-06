@@ -83,9 +83,32 @@ screen-analyze demo.mp4 --whisper small
 # Skip GPT step (transcription + OCR only)
 screen-analyze demo.mp4 --no-actions
 
+# Just the audio transcript (skip OCR + LLM)
+screen-analyze demo.mp4 --transcription-only
+
+# Just the on-screen text (skip audio + LLM)
+screen-analyze demo.mp4 --ocr-only
+
+# Or pick a mode explicitly
+screen-analyze demo.mp4 --mode transcription_only
+
 # Analyze more frames
 screen-analyze demo.mp4 --max-frames 200 --frame-skip 14
+
+# Non-English OCR
+screen-analyze demo.mp4 --ocr-lang fra
 ```
+
+### Pipeline modes
+
+| Mode | Audio transcript | OCR keyframes | LLM actions |
+|------|------------------|---------------|-------------|
+| `full` (default) | yes | yes | yes |
+| `no_actions` | yes | yes | no |
+| `transcription_only` | yes | no | no |
+| `ocr_only` | no | yes | no |
+
+The REST API accepts the same modes via `config.mode`.
 
 ---
 
@@ -101,6 +124,21 @@ uvicorn screen_recorder_analyzer.api:app --host 0.0.0.0 --port 8000
 curl -X POST http://localhost:8000/process-video/ \
   -H "Content-Type: application/json" \
   -d '{"video_path": "/path/to/recording.mp4"}'
+
+# With config (Whisper model size, frame budget, OCR language, mode)
+curl -X POST http://localhost:8000/process-video/ \
+  -H "Content-Type: application/json" \
+  -d '{
+        "video_path": "/path/to/recording.mp4",
+        "config": {
+          "whisper_model_size": "small",
+          "whisper_backend": "api",
+          "frame_skip": 14,
+          "max_frames": 200,
+          "ocr_lang": "eng",
+          "mode": "full"
+        }
+      }'
 ```
 
 ---

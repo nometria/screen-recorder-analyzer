@@ -37,10 +37,10 @@ jobs:
           PUBLISHED=$(pip index versions "$PKG_NAME" 2>/dev/null | grep -o "$PKG_VERSION" | head -1 || echo "")
           if [ "$PUBLISHED" = "$PKG_VERSION" ]; then
             echo "already_published=true" >> $GITHUB_OUTPUT
-            echo "Version $PKG_VERSION already on PyPI — skipping"
+            echo "Version $PKG_VERSION already on PyPI - skipping"
           else
             echo "already_published=false" >> $GITHUB_OUTPUT
-            echo "New version $PKG_VERSION — will publish"
+            echo "New version $PKG_VERSION - will publish"
           fi
 
       - name: Build

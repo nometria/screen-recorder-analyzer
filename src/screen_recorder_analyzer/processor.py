@@ -233,21 +233,34 @@ class VideoProcessor:
             result["status"] = f"error: {e}"
         return result
 
-    def process(self, video_path: str) -> Dict[str, Any]:
-        results: Dict[str, Any] = {}
+    def process(self, video_path: str, mode: str = "full") -> Dict[str, Any]:
+        """Run the pipeline. ``mode`` controls which stages run:
+
+        - ``full`` / ``no_actions`` : transcribe audio + OCR keyframes
+        - ``transcription_only``    : transcribe audio only (skip OCR)
+        - ``ocr_only``             : OCR keyframes only (skip audio)
+        """
+        mode = (mode or "full").lower().strip()
+        do_audio = mode != "ocr_only"
+        do_ocr = mode != "transcription_only"
+
+        results: Dict[str, Any] = {"mode": mode}
         results["metadata"] = self.get_metadata(video_path)
 
-        audio_path = None
-        try:
-            audio_path = self.extract_audio(video_path)
-            results["transcript"] = self.transcribe(audio_path)
-        except Exception as e:
-            results["transcript"] = f"[Error: {e}]"
-        finally:
-            if audio_path and os.path.exists(audio_path):
-                os.remove(audio_path)
+        if do_audio:
+            audio_path = None
+            try:
+                audio_path = self.extract_audio(video_path)
+                results["transcript"] = self.transcribe(audio_path)
+            except Exception as e:
+                results["transcript"] = f"[Error: {e}]"
+            finally:
+                if audio_path and os.path.exists(audio_path):
+                    os.remove(audio_path)
+        else:
+            results["transcript"] = "[Skipped: ocr_only mode]"
 
-        results["frame_analysis"] = self.analyze_frames(video_path)
+        results["frame_analysis"] = self.analyze_frames(video_path) if do_ocr else []
         return results
 
 

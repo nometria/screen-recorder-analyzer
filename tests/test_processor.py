@@ -58,6 +58,45 @@ def test_action_prompt_structure():
         assert "Excel" in prompt_text
 
 
+def test_process_mode_gating(monkeypatch):
+    """process(mode=...) must skip the right pipeline stages."""
+    from screen_recorder_analyzer.processor import VideoProcessor
+    import unittest.mock as mock
+
+    p = VideoProcessor()
+    monkeypatch.setattr(p, "get_metadata", lambda _: {})
+    monkeypatch.setattr(p, "extract_audio", mock.Mock(return_value="/tmp/a.wav"))
+    monkeypatch.setattr(p, "transcribe", mock.Mock(return_value="hello"))
+    monkeypatch.setattr(p, "analyze_frames", mock.Mock(return_value=[{"status": "ok"}]))
+    # extract_audio is stubbed; the os.remove cleanup path should be a no-op.
+    monkeypatch.setattr("screen_recorder_analyzer.processor.os.path.exists", lambda _: False)
+
+    # ocr_only: no audio/transcribe, but frames analyzed.
+    r = p.process("video.mp4", mode="ocr_only")
+    assert r["mode"] == "ocr_only"
+    p.extract_audio.assert_not_called()
+    p.analyze_frames.assert_called_once()
+
+    p.analyze_frames.reset_mock()
+
+    # transcription_only: audio transcribed, no OCR.
+    r = p.process("video.mp4", mode="transcription_only")
+    assert r["transcript"] == "hello"
+    assert r["frame_analysis"] == []
+    p.analyze_frames.assert_not_called()
+
+
+def test_api_config_has_mode():
+    """The REST ProcessingConfig must expose the new mode + whisper_backend fields."""
+    try:
+        from screen_recorder_analyzer.api import ProcessingConfig
+    except ImportError:
+        pytest.skip("fastapi/pydantic not installed")
+    cfg = ProcessingConfig()
+    assert cfg.mode == "full"
+    assert cfg.whisper_backend == "local"
+
+
 def test_api_app_creates():
     """FastAPI app must be importable."""
     try:

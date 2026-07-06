@@ -1,9 +1,13 @@
-usage: screen-analyze [-h] [--whisper MODEL] [--frame-skip N] [--max-frames N]
-                      [--ocr-lang LANG] [--no-actions] [--format {json,text}]
+usage: screen-analyze [-h] [--whisper MODEL] [--whisper-backend {local,api}]
+                      [--frame-skip N] [--max-frames N] [--ocr-lang LANG]
+                      [--no-actions]
+                      [--mode {full,transcription_only,ocr_only,no_actions}]
+                      [--transcription-only] [--ocr-only]
+                      [--format {json,text}]
                       video
 
-Analyze a screen recording: transcribe audio, OCR frames, extract user
-actions.
+Analyze a screen recording in one shot: transcribe audio, OCR keyframes, and
+extract user actions via LLM.
 
 positional arguments:
   video                 Path to video file (mp4, mov, mkv, ...)
@@ -12,8 +16,21 @@ options:
   -h, --help            show this help message and exit
   --whisper MODEL       Whisper model size: tiny|base|small|medium|large
                         (default: base)
+  --whisper-backend {local,api}
+                        Whisper backend: 'local' (default, needs openai-
+                        whisper+torch) or 'api' (uses OpenAI Whisper API,
+                        needs OPENAI_API_KEY)
   --frame-skip N        Analyze every N+1 frames (default: 29 = every 30th)
   --max-frames N        Max frames to OCR (default: 100)
   --ocr-lang LANG       Tesseract language code (default: eng)
-  --no-actions          Skip GPT action extraction step
+  --no-actions          Skip LLM action extraction step (transcribe + OCR
+                        only)
+  --mode {full,transcription_only,ocr_only,no_actions}
+                        Pipeline stages to run (default: full).
+                        transcription_only skips OCR + LLM; ocr_only skips
+                        audio + LLM.
+  --transcription-only  Audio transcript only (skip OCR + LLM). Alias for
+                        --mode transcription_only.
+  --ocr-only            OCR keyframes only (skip audio + LLM). Alias for
+                        --mode ocr_only.
   --format {json,text}  Output format (default: text)
